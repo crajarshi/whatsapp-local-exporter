@@ -12,22 +12,35 @@ It is investigation-first on purpose:
 
 ## Current Status
 
-The current code can already do these parts against a real backup:
+The current code has been tested against a real encrypted Finder backup and can now do these parts end to end:
 
 - discover Finder backups
 - inspect `Info.plist`, `Manifest.plist`, and `Status.plist`
 - detect whether the backup is encrypted
 - detect when raw `Manifest.db` is encrypted and not plaintext SQLite
 - identify WhatsApp app/app-group presence from `Manifest.plist`
-- optionally decrypt a working copy of `Manifest.db` when you provide the backup password
+- decrypt a working copy of `Manifest.db` when you provide the backup password
+- globally enumerate WhatsApp manifest records and target `video,pdf` candidates
+- print a pre-export size/count report before exporting
+- decrypt and export WhatsApp videos and PDFs/documents into output folders
+- dedupe exported files by SHA-256
 - write `manifest.json`, `summary.txt`, and `unresolved.json`
 
-What is not implemented yet:
+Verified results from the tested backup:
 
-- global WhatsApp message and attachment enumeration
-- export of videos and PDFs/documents
+- `33770` WhatsApp manifest rows
+- `52` manifest-level chats with target attachments
+- `1216` video candidates
+- `142` PDF/document candidates
+- `2.64 GiB` targeted export data
+- `966` unique files exported
+- `392` duplicate records preserved in the manifest
+- `0` failed or unresolved export records
 
-That next phase depends on decrypting and inspecting the actual WhatsApp records in the backup first.
+Important limitation:
+
+- export works from Finder-backup manifest data and decrypted file blobs
+- `chat_id` is often recoverable from media paths, but `chat_name`, `message_id`, and `sender` are still usually blank because `ChatStorage.sqlite` is not yet joined into the export manifest
 
 ## Project Files
 
@@ -189,6 +202,8 @@ Export output locations:
 - `output/videos/`
 - `output/pdfs/`
 
+The `pdfs/` folder contains both PDFs and other document-style exports such as `.docx` when they match the requested `pdf`/document category.
+
 ## CLI Flags
 
 - `--list-backups`
@@ -204,16 +219,16 @@ Export output locations:
   Investigate only. No exports.
 
 - `--export`
-  Reserved for the later export phase.
+  Run the actual export after investigation and pre-export reporting.
 
 - `--output <dir>`
   Output folder for `manifest.json`, `summary.txt`, `unresolved.json`, and state files.
 
 - `--types video,pdf`
-  Target attachment categories once enumeration/export is implemented.
+  Target attachment categories. `video,pdf` exports videos plus PDFs/documents.
 
 - `--resume`
-  Reserved for the later resumable export phase.
+  Reuse prior export results and skip files already exported and hashed.
 
 - `--verbose`
   Print the structured investigation payload.
@@ -227,4 +242,4 @@ Export output locations:
 - Decrypted working files are written outside the source backup.
 - If the password is not supplied, the tool will stop honestly at the encrypted-manifest boundary.
 - If decryption fails, the exact error is surfaced in the artifacts.
-- Attachment export is intentionally not claimed yet until WhatsApp schemas and file presence are proven from the decrypted manifest path.
+- Export success is proven at the manifest/blob level for the tested backup, but rich chat/message metadata is still partial until WhatsApp message databases are joined.

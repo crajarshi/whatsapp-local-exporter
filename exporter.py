@@ -57,7 +57,9 @@ def export_records(
             notes=["No export candidate records were available."],
         )
 
-    resume_source_index, resume_hash_index = _load_resume_indexes(output_dir) if resume else ({}, {})
+    resume_source_index, resume_hash_index, existing_filename_index = (
+        _load_resume_indexes(output_dir) if resume else ({}, {}, {})
+    )
     pending_records = [record for record in records if record.attachment_category in types]
 
     exported_count = 0
@@ -71,6 +73,11 @@ def export_records(
         prior_record = resume_source_index.get(source_key)
         if prior_record and _resume_record(record, prior_record):
             resumed_count += 1
+            continue
+        if _resume_from_existing_output(record, existing_filename_index):
+            resumed_count += 1
+            if record.sha256 and record.exported_path:
+                resume_hash_index.setdefault(record.sha256, record.exported_path)
             continue
 
     records_requiring_decryption = [
@@ -199,11 +206,14 @@ def export_records(
     )
 
 
-def _load_resume_indexes(output_dir: Path) -> tuple[dict[tuple[str, str, str], dict[str, Any]], dict[str, str]]:
+def _load_resume_indexes(
+    output_dir: Path,
+) -> tuple[dict[tuple[str, str, str], dict[str, Any]], dict[str, str], dict[tuple[str, str], list[str]]]:
     manifest_payload = safe_read_json(output_dir / "manifest.json") or {}
     records = manifest_payload.get("records", []) if isinstance(manifest_payload, dict) else []
     source_index: dict[tuple[str, str, str], dict[str, Any]] = {}
     hash_index: dict[str, str] = {}
+    filename_index = _existing_output_filename_index(output_dir)
     for record in records:
         if not isinstance(record, dict):
             continue
@@ -217,7 +227,7 @@ def _load_resume_indexes(output_dir: Path) -> tuple[dict[tuple[str, str, str], d
         exported_path = str(record.get("exported_path", "") or "")
         if sha256 and exported_path and Path(exported_path).is_file():
             hash_index[sha256] = exported_path
-    return source_index, hash_index
+    return source_index, hash_index, filename_index
 
 
 def _resume_record(record: AttachmentRecord, prior_record: dict[str, Any]) -> bool:
@@ -233,6 +243,29 @@ def _resume_record(record: AttachmentRecord, prior_record: dict[str, Any]) -> bo
     record.status = prior_status
     record.notes = (
         f"{record.notes} Reused prior export result from the existing manifest."
+    ).strip()
+    return True
+
+
+def _resume_from_existing_output(
+    record: AttachmentRecord,
+    existing_filename_index: dict[tuple[str, str], list[str]],
+) -> bool:
+    filename = record.original_filename or ""
+    if not filename:
+        return False
+    candidates = existing_filename_index.get((record.attachment_category, filename), [])
+    if len(candidates) != 1:
+        return False
+    path = Path(candidates[0])
+    if not path.is_file():
+        return False
+    record.exported_path = str(path)
+    record.file_size = path.stat().st_size
+    record.sha256 = sha256_file(path)
+    record.status = "exported"
+    record.notes = (
+        f"{record.notes} Reused an existing exported file found on disk."
     ).strip()
     return True
 
@@ -259,3 +292,15 @@ def _unique_output_path(directory: Path, filename: str) -> str:
         if not next_candidate.exists():
             return str(next_candidate)
         counter += 1
+
+
+def _existing_output_filename_index(output_dir: Path) -> dict[tuple[str, str], list[str]]:
+    index: dict[tuple[str, str], list[str]] = {}
+    for category, subdir in (("video", output_dir / "videos"), ("pdf", output_dir / "pdfs")):
+        if not subdir.is_dir():
+            continue
+        for path in subdir.iterdir():
+            if not path.is_file():
+                continue
+            index.setdefault((category, path.name), []).append(str(path))
+    return index

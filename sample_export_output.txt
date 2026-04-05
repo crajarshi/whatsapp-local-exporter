@@ -1,0 +1,24 @@
+Selected backup path: /Users/rajarshichakraborty/Library/Application Support/MobileSync/Backup/00008150-00120C912ED8401C
+Backup encrypted: yes
+Decryption succeeded: yes
+WhatsApp data located: yes
+
+Pre-export report:
+- Total WhatsApp file data: 7501936464 bytes (6.99 GiB)
+- Total WhatsApp media file data: 5046267234 bytes (4.70 GiB)
+- Target export data: 2838241389 bytes (2.64 GiB)
+- Target chats: 52
+- Target videos: 1216 files / 2609127269 bytes (2.43 GiB)
+- Target PDFs/documents: 142 files / 229114120 bytes (218.50 MiB)
+
+Export result:
+- Exported unique files: 966
+- Duplicate records: 392
+- Failed records: 0
+- Unresolved records: 0
+- Output videos directory: /Users/rajarshichakraborty/Documents/Codex/output_backup_specific/videos
+- Output PDFs/documents directory: /Users/rajarshichakraborty/Documents/Codex/output_backup_specific/pdfs
+
+Verified sample exports:
+- Video: /Users/rajarshichakraborty/Documents/Codex/output_backup_specific/videos/003957bd-0ca7-4272-bd8d-65f7bd5cf456.mp4
+- Document: /Users/rajarshichakraborty/Documents/Codex/output_backup_specific/pdfs/0009f720-4960-40cf-9feb-7b942b454500.pdf
