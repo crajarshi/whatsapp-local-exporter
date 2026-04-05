@@ -13,6 +13,7 @@ venv/
 /output/
 /output_backup/
 /output_backup_specific/
+/output_all_dryrun/
 /manifest.json
 /summary.txt
 /unresolved.json

@@ -35,8 +35,14 @@ DOCUMENT_EXTENSIONS = {
     ".numbers",
     ".key",
 }
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic"}
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".gif"}
 AUDIO_EXTENSIONS = {".opus", ".m4a", ".mp3", ".aac", ".wav", ".amr"}
+SQLITE_SUFFIXES = (".sqlite", ".sqlite-shm", ".sqlite-wal")
+CHAT_DATABASE_MARKERS = (
+    "chatstorage.sqlite",
+    "extchatdatabase.sqlite",
+    "messaginginfradatabase.sqlite",
+)
 
 
 @dataclass
@@ -57,6 +63,8 @@ class AttachmentEnumerationResult:
     total_export_candidate_bytes: int | None = None
     total_video_bytes: int | None = None
     total_pdf_document_bytes: int | None = None
+    export_category_counts: dict[str, int] = field(default_factory=dict)
+    export_category_bytes: dict[str, int] = field(default_factory=dict)
     target_chat_count: int | None = None
     records: list[AttachmentRecord] = field(default_factory=list)
     unresolved: list[dict[str, Any]] = field(default_factory=list)
@@ -89,10 +97,10 @@ def enumerate_attachments(
             "No readable Manifest.db path was available for attachment enumeration."
         )
 
-    shared_domains = _discover_shared_domains(manifest_db_path)
-    if not shared_domains:
+    whatsapp_domains = _discover_whatsapp_domains(manifest_db_path)
+    if not whatsapp_domains:
         return _unresolved_result(
-            "No WhatsApp shared app-group domains were found in the decrypted manifest."
+            "No WhatsApp domains were found in the decrypted manifest."
         )
 
     rows = _load_whatsapp_file_rows(manifest_db_path)
@@ -112,11 +120,14 @@ def enumerate_attachments(
     total_export_candidate_bytes = 0
     total_video_bytes = 0
     total_pdf_document_bytes = 0
+    export_category_counts: dict[str, int] = {}
+    export_category_bytes: dict[str, int] = {}
     resolvable_count = 0
     metadata_only_count = 0
     target_chat_ids: set[str] = set()
     records: list[AttachmentRecord] = []
     unresolved: list[dict[str, Any]] = []
+    include_all_types = "all" in types
 
     for row in rows:
         file_id = str(row["fileID"])
@@ -135,20 +146,18 @@ def enumerate_attachments(
             total_media_file_records += 1
             total_media_file_bytes += file_size or 0
 
-        export_category = _export_category_from_extension(extension)
-        if export_category is None:
-            continue
-        if export_category not in types:
-            continue
-        if domain not in shared_domains:
+        export_category = _export_category_from_path(relative_path)
+        if not include_all_types and export_category not in types:
             continue
 
         total_attachment_records_discovered += 1
         total_export_candidate_bytes += file_size or 0
+        export_category_counts[export_category] = export_category_counts.get(export_category, 0) + 1
+        export_category_bytes[export_category] = export_category_bytes.get(export_category, 0) + (file_size or 0)
         if export_category == "video":
             total_video_records += 1
             total_video_bytes += file_size or 0
-        else:
+        if export_category == "document":
             total_pdf_document_records += 1
             total_pdf_document_bytes += file_size or 0
 
@@ -184,7 +193,7 @@ def enumerate_attachments(
                 sender="",
                 timestamp=timestamp,
                 attachment_category=export_category,
-                mime_type=_mime_type_for_extension(extension),
+                mime_type=_mime_type_for_path(relative_path),
                 original_filename=Path(relative_path).name,
                 backup_file_id=file_id,
                 decrypted_source_path="",
@@ -203,9 +212,17 @@ def enumerate_attachments(
             "chat/message database view."
         ),
         (
-            f"WhatsApp shared domains selected for export planning: {', '.join(shared_domains)}"
+            f"WhatsApp domains considered for export planning: {', '.join(whatsapp_domains)}"
         ),
     ]
+    if include_all_types:
+        notes.append(
+            "The selected types include 'all', so every WhatsApp file row in the decrypted manifest is eligible for export, including databases and uncategorized files."
+        )
+    if export_category_counts.get("chat"):
+        notes.append(
+            "The 'chat' category currently exports raw WhatsApp chat-related SQLite files. It does not yet produce a human-readable chat transcript."
+        )
 
     return AttachmentEnumerationResult(
         total_chats_discovered=len(target_chat_ids),
@@ -224,6 +241,8 @@ def enumerate_attachments(
         total_export_candidate_bytes=total_export_candidate_bytes,
         total_video_bytes=total_video_bytes,
         total_pdf_document_bytes=total_pdf_document_bytes,
+        export_category_counts=export_category_counts,
+        export_category_bytes=export_category_bytes,
         target_chat_count=len(target_chat_ids),
         records=records,
         unresolved=unresolved,
@@ -231,14 +250,19 @@ def enumerate_attachments(
     )
 
 
-def _discover_shared_domains(manifest_db_path: str) -> list[str]:
+def _discover_whatsapp_domains(manifest_db_path: str) -> list[str]:
     connection = sqlite3.connect(f"file:{manifest_db_path}?mode=ro", uri=True)
     try:
         rows = connection.execute(
             """
             SELECT domain
             FROM Files
-            WHERE domain LIKE 'AppDomainGroup-group.net.whatsapp.%shared'
+            WHERE flags = 1
+              AND (
+                    lower(COALESCE(domain, '')) LIKE '%whatsapp%'
+                 OR lower(COALESCE(relativePath, '')) LIKE '%whatsapp%'
+                 OR domain LIKE 'AppDomainGroup-group.net.whatsapp.%shared'
+              )
             GROUP BY domain
             ORDER BY COUNT(*) DESC
             """
@@ -310,12 +334,22 @@ def _media_category_from_extension(extension: str) -> str | None:
     return None
 
 
-def _export_category_from_extension(extension: str) -> str | None:
-    if extension in VIDEO_EXTENSIONS:
-        return "video"
-    if extension in DOCUMENT_EXTENSIONS:
-        return "pdf"
-    return None
+def _export_category_from_path(relative_path: str) -> str:
+    path_lower = relative_path.lower()
+    name_lower = Path(relative_path).name.lower()
+    extension = _suffix(relative_path)
+    media_category = _media_category_from_extension(extension)
+    if media_category is not None:
+        return "document" if media_category == "document" else media_category
+    if any(marker in path_lower for marker in CHAT_DATABASE_MARKERS) and _has_sqlite_suffix(name_lower):
+        return "chat"
+    if _has_sqlite_suffix(name_lower):
+        return "database"
+    return "other"
+
+
+def _has_sqlite_suffix(filename_lower: str) -> bool:
+    return any(filename_lower.endswith(suffix) for suffix in SQLITE_SUFFIXES)
 
 
 def _derive_chat_id(relative_path: str) -> str:
@@ -329,19 +363,43 @@ def _backup_blob_path(backup_path: str, file_id: str) -> Path:
     return Path(backup_path) / file_id[:2] / file_id
 
 
-def _mime_type_for_extension(extension: str) -> str:
+def _mime_type_for_path(relative_path: str) -> str:
+    path_lower = relative_path.lower()
+    name_lower = Path(relative_path).name.lower()
+    extension = _suffix(relative_path)
     mapping = {
         ".mp4": "video/mp4",
         ".mov": "video/quicktime",
         ".m4v": "video/x-m4v",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+        ".heic": "image/heic",
+        ".gif": "image/gif",
+        ".opus": "audio/ogg",
+        ".m4a": "audio/mp4",
+        ".mp3": "audio/mpeg",
+        ".aac": "audio/aac",
+        ".wav": "audio/wav",
+        ".amr": "audio/amr",
         ".pdf": "application/pdf",
         ".doc": "application/msword",
         ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".ppt": "application/vnd.ms-powerpoint",
+        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ".xls": "application/vnd.ms-excel",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         ".txt": "text/plain",
         ".csv": "text/csv",
+        ".rtf": "application/rtf",
         ".epub": "application/epub+zip",
         ".mht": "message/rfc822",
     }
+    if any(marker in path_lower for marker in CHAT_DATABASE_MARKERS) and _has_sqlite_suffix(name_lower):
+        return "application/x-sqlite3"
+    if _has_sqlite_suffix(name_lower):
+        return "application/x-sqlite3"
     return mapping.get(extension, "")
 
 

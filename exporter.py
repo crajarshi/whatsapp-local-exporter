@@ -16,6 +16,17 @@ except ImportError:  # pragma: no cover - dependency is expected in the project 
     EncryptedBackup = None
 
 
+CATEGORY_OUTPUT_DIRS = {
+    "video": "videos",
+    "image": "images",
+    "audio": "audio",
+    "document": "pdfs",
+    "chat": "chats",
+    "database": "databases",
+    "other": "other",
+}
+
+
 @dataclass
 class ExportResult:
     attempted: bool
@@ -127,16 +138,15 @@ def export_records(
     else:
         backup = None
 
-    videos_dir = output_dir / "videos"
-    pdfs_dir = output_dir / "pdfs"
     temp_dir = output_dir / ".state" / candidate.backup_id / "export_tmp"
-    videos_dir.mkdir(parents=True, exist_ok=True)
-    pdfs_dir.mkdir(parents=True, exist_ok=True)
+    category_directories = {category: output_dir / dirname for category, dirname in CATEGORY_OUTPUT_DIRS.items()}
+    for directory in category_directories.values():
+        directory.mkdir(parents=True, exist_ok=True)
     temp_dir.mkdir(parents=True, exist_ok=True)
 
     hash_index = dict(resume_hash_index)
     for record in records_requiring_decryption:
-        target_dir = videos_dir if record.attachment_category == "video" else pdfs_dir
+        target_dir = category_directories.get(record.attachment_category, category_directories["other"])
         temp_path = temp_dir / _temp_filename(record)
         try:
             if candidate.is_encrypted:
@@ -186,7 +196,14 @@ def export_records(
                 pass
 
     if exported_count:
-        notes.append(f"Exported {exported_count} files into {videos_dir} and {pdfs_dir}.")
+        used_directories = sorted(
+            {
+                str(category_directories.get(record.attachment_category, category_directories["other"]))
+                for record in records
+                if record.status == "exported"
+            }
+        )
+        notes.append(f"Exported {exported_count} files into {', '.join(used_directories)}.")
     if duplicate_count:
         notes.append(f"Detected {duplicate_count} duplicate files by SHA-256.")
     if resumed_count:
@@ -296,7 +313,8 @@ def _unique_output_path(directory: Path, filename: str) -> str:
 
 def _existing_output_filename_index(output_dir: Path) -> dict[tuple[str, str], list[str]]:
     index: dict[tuple[str, str], list[str]] = {}
-    for category, subdir in (("video", output_dir / "videos"), ("pdf", output_dir / "pdfs")):
+    for category, dirname in CATEGORY_OUTPUT_DIRS.items():
+        subdir = output_dir / dirname
         if not subdir.is_dir():
             continue
         for path in subdir.iterdir():

@@ -54,6 +54,8 @@ class DryRunSummary:
     total_records_with_resolvable_local_content: int | None
     total_metadata_only_records: int | None
     total_unresolved_records: int | None
+    export_category_counts: dict[str, int] = field(default_factory=dict)
+    export_category_bytes: dict[str, int] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -100,6 +102,22 @@ def write_artifacts(
         f"Total video bytes: {_fmt_bytes(summary.total_video_bytes)}",
         f"Total pdf/document records: {_fmt(summary.total_pdf_document_records)}",
         f"Total pdf/document bytes: {_fmt_bytes(summary.total_pdf_document_bytes)}",
+    ]
+    if summary.export_category_counts:
+        lines.extend(
+            [
+                "",
+                "Export category breakdown:",
+            ]
+        )
+        for category in sorted(summary.export_category_counts):
+            count = summary.export_category_counts.get(category)
+            size = summary.export_category_bytes.get(category)
+            lines.append(
+                f"- {category}: {_fmt(count)} records / {_fmt_bytes(size)}"
+            )
+    lines.extend(
+        [
         (
             "Total records with resolvable local content: "
             f"{_fmt(summary.total_records_with_resolvable_local_content)}"
@@ -108,7 +126,8 @@ def write_artifacts(
         f"Total unresolved records: {_fmt(summary.total_unresolved_records)}",
         "",
         "Notes:",
-    ]
+        ]
+    )
     lines.extend(f"- {note}" for note in summary.notes)
     summary_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 

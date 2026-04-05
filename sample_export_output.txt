@@ -1,4 +1,4 @@
-Selected backup path: /Users/rajarshichakraborty/Library/Application Support/MobileSync/Backup/00008150-00120C912ED8401C
+Selected backup path: /Users/<you>/Library/Application Support/MobileSync/Backup/<backup-id>
 Backup encrypted: yes
 Decryption succeeded: yes
 WhatsApp data located: yes
@@ -16,9 +16,9 @@ Export result:
 - Duplicate records: 392
 - Failed records: 0
 - Unresolved records: 0
-- Output videos directory: /Users/rajarshichakraborty/Documents/Codex/output_backup_specific/videos
-- Output PDFs/documents directory: /Users/rajarshichakraborty/Documents/Codex/output_backup_specific/pdfs
+- Output videos directory: /Users/<you>/Downloads/whatsapp-export/videos
+- Output PDFs/documents directory: /Users/<you>/Downloads/whatsapp-export/pdfs
 
 Verified sample exports:
-- Video: /Users/rajarshichakraborty/Documents/Codex/output_backup_specific/videos/003957bd-0ca7-4272-bd8d-65f7bd5cf456.mp4
-- Document: /Users/rajarshichakraborty/Documents/Codex/output_backup_specific/pdfs/0009f720-4960-40cf-9feb-7b942b454500.pdf
+- Video: /Users/<you>/Downloads/whatsapp-export/videos/<video-file>.mp4
+- Document: /Users/<you>/Downloads/whatsapp-export/pdfs/<document-file>.pdf

@@ -11,7 +11,15 @@ from backup_locator import BackupCandidate, BackupDiscoveryResult, discover_back
 from backup_manifest_parser import inspect_backup_structure
 from exporter import export_records
 from manifest import DryRunSummary, write_artifacts
-from utils import BACKUP_PASSWORD_ENV_VAR, bool_to_text, ensure_output_dir, format_bytes, now_iso, prompt_password
+from utils import (
+    BACKUP_PASSWORD_ENV_VAR,
+    DEFAULT_OUTPUT_DIR,
+    bool_to_text,
+    ensure_output_dir,
+    format_bytes,
+    now_iso,
+    prompt_password,
+)
 from whatsapp_locator import locate_whatsapp_records
 
 
@@ -20,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="finder-backup-whatsapp-investigator",
         description=(
             "Investigation-first CLI for encrypted Finder iPhone backups that tries to locate "
-            "and eventually extract WhatsApp videos and PDF/document attachments."
+            "and extract WhatsApp backup contents such as videos, images, audio, documents, and raw chat databases."
         ),
     )
     parser.add_argument("--list-backups", action="store_true", help="List candidate Finder backups.")
@@ -28,9 +36,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--scan", action="store_true", help="Inspect the selected backup structure.")
     parser.add_argument("--dry-run", action="store_true", help="Perform a non-exporting investigation pass.")
     parser.add_argument("--export", action="store_true", help="Attempt export after investigation proves possible.")
-    parser.add_argument("--output", default="output", help="Directory for manifest.json, summary.txt, and unresolved.json.")
-    parser.add_argument("--types", default="video,pdf", help="Comma-separated attachment categories to target.")
-    parser.add_argument("--resume", action="store_true", help="Reserved for future export-resume support.")
+    parser.add_argument(
+        "--output",
+        default=str(DEFAULT_OUTPUT_DIR),
+        help="Directory for manifest.json, summary.txt, unresolved.json, and exported files.",
+    )
+    parser.add_argument(
+        "--types",
+        default="video,pdf",
+        help="Comma-separated categories to target: video,image,audio,document,chat,database,other,all.",
+    )
+    parser.add_argument("--resume", action="store_true", help="Reuse already exported files and prior manifest state.")
     parser.add_argument("--verbose", action="store_true", help="Print verbose JSON output.")
     parser.add_argument(
         "--password-prompt",
@@ -120,6 +136,8 @@ def main(argv: list[str] | None = None) -> int:
         total_video_bytes=enumeration.total_video_bytes,
         total_pdf_document_records=enumeration.total_pdf_document_records,
         total_pdf_document_bytes=enumeration.total_pdf_document_bytes,
+        export_category_counts=enumeration.export_category_counts,
+        export_category_bytes=enumeration.export_category_bytes,
         total_records_with_resolvable_local_content=enumeration.total_records_with_resolvable_local_content,
         total_metadata_only_records=enumeration.total_metadata_only_records,
         total_unresolved_records=enumeration.total_unresolved_records,
@@ -143,9 +161,10 @@ def main(argv: list[str] | None = None) -> int:
         investigation_payload=investigation_payload,
     )
 
-    if args.scan or args.dry_run or args.verbose:
+    if args.verbose:
         print(json.dumps(investigation_payload, indent=2, ensure_ascii=False))
         print()
+    if args.scan or args.dry_run or args.verbose:
         print(_render_console_summary(summary))
 
     if args.export:
@@ -179,8 +198,11 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _parse_types(raw_types: str, parser: argparse.ArgumentParser) -> list[str]:
-    selected = [item.strip().lower() for item in raw_types.split(",") if item.strip()]
-    invalid = [item for item in selected if item not in {"video", "pdf"}]
+    aliases = {"pdf": "document", "docs": "document", "images": "image", "videos": "video", "audios": "audio"}
+    selected = [aliases.get(item.strip().lower(), item.strip().lower()) for item in raw_types.split(",") if item.strip()]
+    if "all" in selected:
+        return ["all"]
+    invalid = [item for item in selected if item not in {"video", "image", "audio", "document", "chat", "database", "other"}]
     if invalid:
         parser.error(f"Unsupported --types values: {', '.join(invalid)}")
     return selected
@@ -242,6 +264,13 @@ def _render_console_summary(summary: DryRunSummary) -> str:
         f"total metadata-only records: {_fmt(summary.total_metadata_only_records)}",
         f"total unresolved records: {_fmt(summary.total_unresolved_records)}",
     ]
+    if summary.export_category_counts:
+        lines.append("export category breakdown:")
+        for category in sorted(summary.export_category_counts):
+            lines.append(
+                f"- {category}: {_fmt(summary.export_category_counts.get(category))} / "
+                f"{_fmt_bytes(summary.export_category_bytes.get(category))}"
+            )
     return "\n".join(lines)
 
 
@@ -252,11 +281,23 @@ def _render_pre_export_report(summary: DryRunSummary) -> str:
         f"WhatsApp media file bytes: {_fmt_bytes(summary.total_media_file_bytes)}",
         f"Target export bytes: {_fmt_bytes(summary.total_export_candidate_bytes)}",
         f"Target chats: {_fmt(summary.total_chats_discovered)}",
-        f"Target video files: {_fmt(summary.total_video_records)}",
-        f"Target video bytes: {_fmt_bytes(summary.total_video_bytes)}",
-        f"Target pdf/document files: {_fmt(summary.total_pdf_document_records)}",
-        f"Target pdf/document bytes: {_fmt_bytes(summary.total_pdf_document_bytes)}",
     ]
+    if summary.export_category_counts:
+        lines.append("Target categories:")
+        for category in sorted(summary.export_category_counts):
+            lines.append(
+                f"- {category}: {_fmt(summary.export_category_counts.get(category))} files / "
+                f"{_fmt_bytes(summary.export_category_bytes.get(category))}"
+            )
+    else:
+        lines.extend(
+            [
+                f"Target video files: {_fmt(summary.total_video_records)}",
+                f"Target video bytes: {_fmt_bytes(summary.total_video_bytes)}",
+                f"Target pdf/document files: {_fmt(summary.total_pdf_document_records)}",
+                f"Target pdf/document bytes: {_fmt_bytes(summary.total_pdf_document_bytes)}",
+            ]
+        )
     return "\n".join(lines)
 
 

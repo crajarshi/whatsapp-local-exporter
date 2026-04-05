@@ -12,7 +12,7 @@ It is investigation-first on purpose:
 
 ## Current Status
 
-The current code has been tested against a real encrypted Finder backup and can now do these parts end to end:
+The current code has been tested against a real encrypted Finder backup and can now do these parts:
 
 - discover Finder backups
 - inspect `Info.plist`, `Manifest.plist`, and `Status.plist`
@@ -20,27 +20,35 @@ The current code has been tested against a real encrypted Finder backup and can 
 - detect when raw `Manifest.db` is encrypted and not plaintext SQLite
 - identify WhatsApp app/app-group presence from `Manifest.plist`
 - decrypt a working copy of `Manifest.db` when you provide the backup password
-- globally enumerate WhatsApp manifest records and target `video,pdf` candidates
+- globally enumerate WhatsApp manifest records and classify export candidates
 - print a pre-export size/count report before exporting
-- decrypt and export WhatsApp videos and PDFs/documents into output folders
+- decrypt and export WhatsApp backup files into output folders by category
 - dedupe exported files by SHA-256
 - write `manifest.json`, `summary.txt`, and `unresolved.json`
 
 Verified results from the tested backup:
 
 - `33770` WhatsApp manifest rows
-- `52` manifest-level chats with target attachments
+- `27925` WhatsApp file records
+- `136` manifest-level chats with media-path identifiers when running `--types all`
 - `1216` video candidates
-- `142` PDF/document candidates
-- `2.64 GiB` targeted export data
+- `11938` image candidates
+- `46` audio candidates
+- `142` document candidates
+- `5` raw chat-database candidates
+- `23` additional SQLite database candidates
+- `14555` other WhatsApp backup files
+- `6.99 GiB` total WhatsApp file data in the tested backup
 - `966` unique files exported
 - `392` duplicate records preserved in the manifest
 - `0` failed or unresolved export records
 
-Important limitation:
+Important limitations:
 
-- export works from Finder-backup manifest data and decrypted file blobs
+- end-to-end blob export is directly proven for videos and documents from the tested backup
+- images, audio, raw chat databases, databases, and `other` files are now classified and supported by the CLI, but they have not yet been re-run end to end in this exact session with a second secure export pass
 - `chat_id` is often recoverable from media paths, but `chat_name`, `message_id`, and `sender` are still usually blank because `ChatStorage.sqlite` is not yet joined into the export manifest
+- the `chat` export category currently means raw WhatsApp SQLite files, not a human-readable conversation transcript
 
 ## Project Files
 
@@ -68,6 +76,52 @@ Important limitation:
 Default Finder backup root:
 
 - `~/Library/Application Support/MobileSync/Backup/`
+
+Default export output directory:
+
+- `~/Downloads/whatsapp-export`
+
+## Quick Start
+
+### Step 1. Create the encrypted Finder backup
+
+1. Connect the iPhone to your Mac with a cable.
+2. Open Finder and select the iPhone in the sidebar.
+3. In the General tab, choose `Back up all of the data on your iPhone to this Mac`.
+4. Enable `Encrypt local backup`.
+5. Click `Back Up Now`.
+6. Wait for the backup to finish.
+
+The default macOS backup root is:
+
+- `~/Library/Application Support/MobileSync/Backup/`
+
+### Step 2. Run one command
+
+This command investigates the backup, prints the size/count breakdown first, then prompts securely for the Finder backup password and exports into `~/Downloads/whatsapp-export`.
+
+```bash
+python cli.py \
+  --backup-path "/Users/<you>/Library/Application Support/MobileSync/Backup/<backup-id>" \
+  --export \
+  --password-prompt \
+  --types all \
+  --output ~/Downloads/whatsapp-export \
+  --resume
+```
+
+What this currently exports by category:
+
+- `video` to `~/Downloads/whatsapp-export/videos/`
+- `image` to `~/Downloads/whatsapp-export/images/`
+- `audio` to `~/Downloads/whatsapp-export/audio/`
+- `document` to `~/Downloads/whatsapp-export/pdfs/`
+- `chat` to `~/Downloads/whatsapp-export/chats/`
+- `database` to `~/Downloads/whatsapp-export/databases/`
+- `other` to `~/Downloads/whatsapp-export/other/`
+
+The `chat` directory contains raw WhatsApp chat-related SQLite files such as `ChatStorage.sqlite`. It is not yet a rendered text transcript.
+The `pdfs/` directory contains PDFs plus other document-style files such as `.docx` and `.xlsx`.
 
 ## Step By Step
 
@@ -182,7 +236,10 @@ The CLI now prints a pre-export report first, including:
 - total WhatsApp media file bytes
 - target export bytes
 - target video count and bytes
-- target PDF/document count and bytes
+- target image count and bytes when selected
+- target audio count and bytes when selected
+- target document count and bytes
+- target raw chat/database count and bytes when selected
 - manifest-level target chat count
 
 Then it decrypts and exports the selected file types.
@@ -192,17 +249,20 @@ python cli.py \
   --backup-path "/Users/<you>/Library/Application Support/MobileSync/Backup/<backup-id>" \
   --export \
   --password-prompt \
-  --output ./output \
-  --types video,pdf \
+  --output ~/Downloads/whatsapp-export \
+  --types all \
   --resume
 ```
 
 Export output locations:
 
 - `output/videos/`
+- `output/images/`
+- `output/audio/`
 - `output/pdfs/`
-
-The `pdfs/` folder contains both PDFs and other document-style exports such as `.docx` when they match the requested `pdf`/document category.
+- `output/chats/`
+- `output/databases/`
+- `output/other/`
 
 ## CLI Flags
 
@@ -224,8 +284,11 @@ The `pdfs/` folder contains both PDFs and other document-style exports such as `
 - `--output <dir>`
   Output folder for `manifest.json`, `summary.txt`, `unresolved.json`, and state files.
 
-- `--types video,pdf`
-  Target attachment categories. `video,pdf` exports videos plus PDFs/documents.
+- `--types all`
+  Export all WhatsApp files discovered in the decrypted manifest.
+
+- `--types video,image,audio,document,chat,database,other`
+  Export only the selected categories. `pdf` is accepted as an alias for `document`.
 
 - `--resume`
   Reuse prior export results and skip files already exported and hashed.
@@ -242,4 +305,5 @@ The `pdfs/` folder contains both PDFs and other document-style exports such as `
 - Decrypted working files are written outside the source backup.
 - If the password is not supplied, the tool will stop honestly at the encrypted-manifest boundary.
 - If decryption fails, the exact error is surfaced in the artifacts.
-- Export success is proven at the manifest/blob level for the tested backup, but rich chat/message metadata is still partial until WhatsApp message databases are joined.
+- Export success is proven at the manifest/blob level for videos and documents from the tested backup.
+- Full readable chat reconstruction still requires WhatsApp database joins beyond the current manifest/path-based exporter.

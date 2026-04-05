@@ -12,6 +12,7 @@ from typing import Any
 DEFAULT_BACKUP_ROOT = (
     Path.home() / "Library" / "Application Support" / "MobileSync" / "Backup"
 )
+DEFAULT_OUTPUT_DIR = Path.home() / "Downloads" / "whatsapp-export"
 BACKUP_PASSWORD_ENV_VAR = "FINDER_BACKUP_PASSWORD"
 
 
