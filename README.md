@@ -1,76 +1,15 @@
-# Finder Backup WhatsApp Investigator
+# WhatsApp Export From Encrypted iPhone Backup
 
-This project is a macOS-first Python CLI for investigating an encrypted Finder iPhone backup and determining whether WhatsApp videos and PDFs/documents can be globally enumerated and extracted from it.
-
-It is investigation-first on purpose:
-
-- the backup is treated as read-only
-- no WhatsApp Mac linked-device data is used
-- no iCloud browsing is used
-- no live iPhone app access is used
-- no extraction success is claimed until real files are proven
-
-## Current Status
-
-The current code has been tested against a real encrypted Finder backup and can now do these parts:
-
-- discover Finder backups
-- inspect `Info.plist`, `Manifest.plist`, and `Status.plist`
-- detect whether the backup is encrypted
-- detect when raw `Manifest.db` is encrypted and not plaintext SQLite
-- identify WhatsApp app/app-group presence from `Manifest.plist`
-- decrypt a working copy of `Manifest.db` when you provide the backup password
-- globally enumerate WhatsApp manifest records and classify export candidates
-- print a pre-export size/count report before exporting
-- decrypt and export WhatsApp backup files into output folders by category
-- dedupe exported files by SHA-256
-- write `manifest.json`, `summary.txt`, and `unresolved.json`
-
-Verified results from the tested backup:
-
-- `33770` WhatsApp manifest rows
-- `27925` WhatsApp file records
-- `136` manifest-level chats with media-path identifiers when running `--types all`
-- `1216` video candidates
-- `11938` image candidates
-- `46` audio candidates
-- `142` document candidates
-- `5` raw chat-database candidates
-- `23` additional SQLite database candidates
-- `14555` other WhatsApp backup files
-- `6.99 GiB` total WhatsApp file data in the tested backup
-- `966` unique files exported
-- `392` duplicate records preserved in the manifest
-- `0` failed or unresolved export records
-
-Important limitations:
-
-- end-to-end blob export is directly proven for videos and documents from the tested backup
-- images, audio, raw chat databases, databases, and `other` files are now classified and supported by the CLI, but they have not yet been re-run end to end in this exact session with a second secure export pass
-- `chat_id` is often recoverable from media paths, but `chat_name`, `message_id`, and `sender` are still usually blank because `ChatStorage.sqlite` is not yet joined into the export manifest
-- the `chat` export category currently means raw WhatsApp SQLite files, not a human-readable conversation transcript
-
-## Project Files
-
-- `cli.py`
-- `backup_locator.py`
-- `backup_manifest_parser.py`
-- `backup_decryptor.py`
-- `whatsapp_locator.py`
-- `schema_inspector.py`
-- `attachment_enumerator.py`
-- `exporter.py`
-- `dedupe.py`
-- `manifest.py`
-- `utils.py`
-- `findings.md`
-- `requirements.txt`
+This is a macOS-first Python CLI for exporting WhatsApp data from an encrypted iPhone Finder backup on disk.
 
 ## Requirements
 
 - macOS
 - Python 3.9+
-- a Finder iPhone backup already present on disk
+- an iPhone
+- a USB cable
+- an encrypted Finder backup created on this Mac
+- the encrypted backup password
 - Full Disk Access for Codex/Terminal if needed
 
 Default Finder backup root:
@@ -85,18 +24,38 @@ Default export output directory:
 
 ### Step 1. Create the encrypted Finder backup
 
-1. Connect the iPhone to your Mac with a cable.
+Follow Apple’s instructions for making a local Mac backup and for turning on encrypted local backups:
+
+- [How to back up your iPhone, iPad, and iPod touch with your Mac](https://support.apple.com/en-us/108796)
+- [About encrypted backups on your iPhone, iPad, or iPod touch](https://support.apple.com/en-us/108353)
+
+In practice, the Finder flow is:
+
+1. Connect the iPhone to your Mac with a USB cable.
 2. Open Finder and select the iPhone in the sidebar.
-3. In the General tab, choose `Back up all of the data on your iPhone to this Mac`.
-4. Enable `Encrypt local backup`.
-5. Click `Back Up Now`.
-6. Wait for the backup to finish.
+3. Open the `General` tab.
+4. Choose `Back up all of the data on your iPhone to this Mac`.
+5. Turn on `Encrypt local backup`.
+6. Create and save the backup password somewhere safe.
+7. Click `Back Up Now`.
+
+Apple notes that you can’t use the encrypted backup without that password, so keep it safe.
 
 The default macOS backup root is:
 
 - `~/Library/Application Support/MobileSync/Backup/`
 
-### Step 2. Run one command
+### Step 2. Install and run one command
+
+Clone the repo and install dependencies:
+
+```bash
+git clone https://github.com/crajarshi/whatsapp-local-exporter.git
+cd whatsapp-local-exporter
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
 This command investigates the backup, prints the size/count breakdown first, then prompts securely for the Finder backup password and exports into `~/Downloads/whatsapp-export`.
 
@@ -123,47 +82,27 @@ What this currently exports by category:
 The `chat` directory contains raw WhatsApp chat-related SQLite files such as `ChatStorage.sqlite`. It is not yet a rendered text transcript.
 The `pdfs/` directory contains PDFs plus other document-style files such as `.docx` and `.xlsx`.
 
-## Step By Step
-
-### 1. Clone the repo
-
-```bash
-git clone https://github.com/crajarshi/whatsapp-local-exporter.git
-cd whatsapp-local-exporter
-```
-
-### 2. Create a virtual environment
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-### 3. Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
 Why there is a dependency now:
 
 - encrypted Finder backups do not expose a plaintext `Manifest.db`
 - this project uses `iphone_backup_decrypt` to create a decrypted working copy of `Manifest.db` outside the source backup
 
-### 4. Make sure macOS privacy is not blocking the backup
+## Optional Checks
+
+### 1. Make sure macOS privacy is not blocking the backup
 
 If the backup lives under `~/Library/Application Support/MobileSync/Backup/`, give Full Disk Access to:
 
 - Codex
 - Terminal or iTerm, if that is what launches the CLI
 
-### 5. List available backups
+### 2. List available backups
 
 ```bash
 python cli.py --list-backups
 ```
 
-### 6. Run a dry-run without a password first
+### 3. Run a dry-run without a password first
 
 This confirms discovery, backup metadata, encryption state, and whether WhatsApp is visible in `Manifest.plist`.
 
@@ -182,7 +121,7 @@ Expected result for an encrypted backup:
 - WhatsApp data located = yes if WhatsApp app/app-group identifiers are present
 - `Manifest.db` reported as encrypted or opaque on disk until a password is supplied
 
-### 7. Run a dry-run with `--password-prompt`
+### 4. Run a dry-run with `--password-prompt`
 
 This is the next real step for encrypted backups. The CLI will securely prompt for the Finder backup password without echoing it.
 
@@ -211,7 +150,7 @@ Optional secondary mode:
 - if you really need non-interactive execution, set `FINDER_BACKUP_PASSWORD` in the environment
 - the CLI never writes the password value to stdout, stderr, manifests, or summary files
 
-### 8. Review the generated artifacts
+### 5. Review the generated artifacts
 
 After a run, inspect:
 
@@ -228,7 +167,7 @@ These files tell you:
 - whether `Manifest.db` was directly readable or required decryption
 - what is still unresolved
 
-### 9. Run the actual export
+### 6. Run the actual export
 
 The CLI now prints a pre-export report first, including:
 
