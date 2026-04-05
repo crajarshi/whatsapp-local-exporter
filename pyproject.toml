@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whatsapp-local-exporter"
+version = "0.1.0"
+description = "Export locally cached WhatsApp macOS videos and PDFs by reading on-disk storage directly."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+  { name = "OpenAI Codex" }
+]
+dependencies = []
+
+[project.scripts]
+whatsapp-local-exporter = "whatsapp_local_exporter.cli:main"
+
+[tool.setuptools]
+packages = ["whatsapp_local_exporter"]

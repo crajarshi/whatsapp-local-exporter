@@ -1,0 +1,17 @@
+.DS_Store
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Local runs and personal WhatsApp artifacts
+/dryrun/
+/output/
+/manifest.json
+/summary.txt
+/unresolved.json
+/findings.md
