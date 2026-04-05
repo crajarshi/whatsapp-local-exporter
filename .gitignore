@@ -11,7 +11,10 @@ venv/
 # Local runs and personal WhatsApp artifacts
 /dryrun/
 /output/
+/output_backup/
+/output_backup_specific/
 /manifest.json
 /summary.txt
 /unresolved.json
 /findings.md
+/sample_dry_run_output.txt.bak

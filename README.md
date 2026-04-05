@@ -1,222 +1,230 @@
-# WhatsApp Local Exporter
+# Finder Backup WhatsApp Investigator
 
-This project exports locally available WhatsApp macOS videos and PDFs by reading WhatsApp's on-disk storage directly. It does not use iPhone backups, and it does not require per-chat manual export.
+This project is a macOS-first Python CLI for investigating an encrypted Finder iPhone backup and determining whether WhatsApp videos and PDFs/documents can be globally enumerated and extracted from it.
+
+It is investigation-first on purpose:
+
+- the backup is treated as read-only
+- no WhatsApp Mac linked-device data is used
+- no iCloud browsing is used
+- no live iPhone app access is used
+- no extraction success is claimed until real files are proven
+
+## Current Status
+
+The current code can already do these parts against a real backup:
+
+- discover Finder backups
+- inspect `Info.plist`, `Manifest.plist`, and `Status.plist`
+- detect whether the backup is encrypted
+- detect when raw `Manifest.db` is encrypted and not plaintext SQLite
+- identify WhatsApp app/app-group presence from `Manifest.plist`
+- optionally decrypt a working copy of `Manifest.db` when you provide the backup password
+- write `manifest.json`, `summary.txt`, and `unresolved.json`
+
+What is not implemented yet:
+
+- global WhatsApp message and attachment enumeration
+- export of videos and PDFs/documents
+
+That next phase depends on decrypting and inspecting the actual WhatsApp records in the backup first.
+
+## Project Files
+
+- `cli.py`
+- `backup_locator.py`
+- `backup_manifest_parser.py`
+- `backup_decryptor.py`
+- `whatsapp_locator.py`
+- `schema_inspector.py`
+- `attachment_enumerator.py`
+- `exporter.py`
+- `dedupe.py`
+- `manifest.py`
+- `utils.py`
+- `findings.md`
+- `requirements.txt`
 
 ## Requirements
 
 - macOS
-- WhatsApp for Mac installed and signed in
-- Python 3.9 or newer
-- the target videos and PDFs must already exist locally in WhatsApp's storage
+- Python 3.9+
+- a Finder iPhone backup already present on disk
+- Full Disk Access for Codex/Terminal if needed
 
-## What This Tool Does
+Default Finder backup root:
 
-- discovers WhatsApp containers and group containers
-- inspects the local WhatsApp SQLite stores
-- globally enumerates locally available video and PDF attachments across all chats
-- exports those files into a clean output directory
-- computes SHA-256 hashes
-- dedupes exported files by content hash
-- keeps duplicate and failure records in `manifest.json`
-
-## What It Uses Internally
-
-Primary path:
-
-- `~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite`
-- `~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/Message/Media/...`
-
-The exporter reads `ZWAMESSAGE`, `ZWAMEDIAITEM`, `ZWACHATSESSION`, and `ZWAGROUPMEMBER` from `ChatStorage.sqlite`, then resolves WhatsApp's stored relative media paths to real files on disk.
-
-## What It Produces
-
-Inside the chosen `--output` directory:
-
-- `manifest.json`
-- `summary.txt`
-- `unresolved.json`
-- `videos/`
-- `pdfs/`
-
-Each manifest record includes:
-
-- `chat_id`
-- `chat_name`
-- `message_id`
-- `sender`
-- `timestamp`
-- `attachment_type`
-- `mime_type`
-- `original_filename`
-- `source_local_path`
-- `exported_path`
-- `file_size`
-- `sha256`
-- `status`
-- `notes`
+- `~/Library/Application Support/MobileSync/Backup/`
 
 ## Step By Step
 
-### 1. Clone The Repo
+### 1. Clone the repo
 
 ```bash
 git clone https://github.com/crajarshi/whatsapp-local-exporter.git
 cd whatsapp-local-exporter
 ```
 
-If you use a different repository name, replace the URL and folder name accordingly.
-
-### 2. Confirm Python Is Available
+### 2. Create a virtual environment
 
 ```bash
-python3 -V
+python3 -m venv .venv
+source .venv/bin/activate
 ```
 
-### 3. Run A Storage Scan
-
-This prints the WhatsApp directories and databases the tool can see on your Mac.
+### 3. Install dependencies
 
 ```bash
-python3 -m whatsapp_local_exporter --scan
+pip install -r requirements.txt
 ```
 
-### 4. Run A Dry-Run First
+Why there is a dependency now:
 
-This is the safest first pass. It discovers all matching records globally without copying files.
+- encrypted Finder backups do not expose a plaintext `Manifest.db`
+- this project uses `iphone_backup_decrypt` to create a decrypted working copy of `Manifest.db` outside the source backup
+
+### 4. Make sure macOS privacy is not blocking the backup
+
+If the backup lives under `~/Library/Application Support/MobileSync/Backup/`, give Full Disk Access to:
+
+- Codex
+- Terminal or iTerm, if that is what launches the CLI
+
+### 5. List available backups
 
 ```bash
-python3 -m whatsapp_local_exporter \
-  --scan \
+python cli.py --list-backups
+```
+
+### 6. Run a dry-run without a password first
+
+This confirms discovery, backup metadata, encryption state, and whether WhatsApp is visible in `Manifest.plist`.
+
+```bash
+python cli.py \
+  --backup-path "/Users/<you>/Library/Application Support/MobileSync/Backup/<backup-id>" \
   --dry-run \
-  --types video,pdf \
-  --output ./dryrun
+  --output ./output \
+  --verbose
 ```
 
-After this completes, inspect:
+Expected result for an encrypted backup:
 
-- `./dryrun/manifest.json`
-- `./dryrun/summary.txt`
-- `./dryrun/unresolved.json`
+- backup path is readable
+- backup encrypted = yes
+- WhatsApp data located = yes if WhatsApp app/app-group identifiers are present
+- `Manifest.db` reported as encrypted or opaque on disk until a password is supplied
 
-### 5. Run The Real Export
+### 7. Run a dry-run with `--password-prompt`
 
-This copies locally available files into `./output/videos` and `./output/pdfs`.
-
-```bash
-python3 -m whatsapp_local_exporter \
-  --export \
-  --types video,pdf \
-  --output ./output
-```
-
-### 6. Resume If Needed
-
-If the export stops mid-run, rerun it with `--resume`.
+This is the next real step for encrypted backups. The CLI will securely prompt for the Finder backup password without echoing it.
 
 ```bash
-python3 -m whatsapp_local_exporter \
-  --export \
-  --resume \
-  --types video,pdf \
-  --output ./output
-```
-
-## CLI Flags
-
-Scan only:
-
-```bash
-python3 -m whatsapp_local_exporter --scan
-```
-
-- `--scan`
-  Discover WhatsApp storage locations and print what was found.
-
-- `--dry-run`
-  Enumerate records without copying files.
-
-- `--export`
-  Copy matching files into the output directory.
-
-- `--output <dir>`
-  Choose where manifests and exported files go.
-
-- `--types video,pdf`
-  Limit attachment types. Supported values are `video` and `pdf`.
-
-- `--resume`
-  Reuse an existing `manifest.json` in the output directory.
-
-- `--verbose`
-  Print extra details, including the scan and run summary JSON.
-
-## Common Commands
-
-Global dry-run across all chats:
-
-```bash
-python3 -m whatsapp_local_exporter \
-  --scan \
+python cli.py \
+  --backup-path "/Users/<you>/Library/Application Support/MobileSync/Backup/<backup-id>" \
   --dry-run \
-  --types video,pdf \
-  --output ./dryrun
+  --password-prompt \
+  --output ./output \
+  --verbose
 ```
 
-Real export:
+If you are using Codex Desktop and the embedded terminal does not accept hidden password input cleanly, run the same command in your normal macOS Terminal or iTerm window instead.
 
-```bash
-python3 -m whatsapp_local_exporter \
-  --export \
-  --types video,pdf \
-  --output ./output
-```
+If the password is correct, the tool will:
 
-Resume a previous export run:
+- decrypt a working copy of `Manifest.db`
+- store that working copy under `output/.state/<backup-id>/`
+- keep the original backup untouched
+- continue investigation from the decrypted manifest copy
 
-```bash
-python3 -m whatsapp_local_exporter \
-  --export \
-  --resume \
-  --types video,pdf \
-  --output ./output
-```
+There is intentionally no `--password <value>` flag, because that would leak into shell history and process lists.
 
-Install as an editable local CLI if you prefer the entrypoint name:
+Optional secondary mode:
 
-```bash
-python3 -m pip install -e .
-whatsapp-local-exporter --scan
-```
+- if you really need non-interactive execution, set `FINDER_BACKUP_PASSWORD` in the environment
+- the CLI never writes the password value to stdout, stderr, manifests, or summary files
 
-## Output Layout
+### 8. Review the generated artifacts
 
-After a successful export, you will typically have:
+After a run, inspect:
 
 - `output/manifest.json`
 - `output/summary.txt`
 - `output/unresolved.json`
+
+These files tell you:
+
+- which backup was selected
+- whether it is encrypted
+- whether decryption succeeded
+- whether WhatsApp presence was proven
+- whether `Manifest.db` was directly readable or required decryption
+- what is still unresolved
+
+### 9. Run the actual export
+
+The CLI now prints a pre-export report first, including:
+
+- total WhatsApp file bytes
+- total WhatsApp media file bytes
+- target export bytes
+- target video count and bytes
+- target PDF/document count and bytes
+- manifest-level target chat count
+
+Then it decrypts and exports the selected file types.
+
+```bash
+python cli.py \
+  --backup-path "/Users/<you>/Library/Application Support/MobileSync/Backup/<backup-id>" \
+  --export \
+  --password-prompt \
+  --output ./output \
+  --types video,pdf \
+  --resume
+```
+
+Export output locations:
+
 - `output/videos/`
 - `output/pdfs/`
 
-`manifest.json` contains one record per matching WhatsApp message attachment, even when multiple records point to the same exported file after dedupe.
+## CLI Flags
 
-## Notes
+- `--list-backups`
+  List candidate Finder backups.
 
-- Export dedupes by SHA-256 and keeps duplicate records in the manifest.
-- `original_filename` is best-effort. On the observed WhatsApp schema, most rows do not expose a stable original filename, so the exporter usually falls back to the local UUID-style basename.
-- The database stores relative paths like `Media/...`, but on the tested native WhatsApp build the real files live under `Message/Media/...`. The exporter resolves that mapping automatically.
-- Only files already present on disk are exported.
-- If WhatsApp has metadata for a message but the file is not currently cached on disk, the tool will not download it.
-- On some Macs, Terminal may need permission to read `~/Library/Containers` and `~/Library/Group Containers`.
+- `--backup-path <path>`
+  Use one exact Finder backup directory.
 
-## Fallback UI Mode
+- `--scan`
+  Inspect the selected backup structure.
 
-`fallback_ui.py` is included as a separate brittle secondary mode. It is not the primary workflow and was not needed on the tested machine because direct parsing succeeded.
+- `--dry-run`
+  Investigate only. No exports.
 
-Example:
+- `--export`
+  Reserved for the later export phase.
 
-```bash
-python3 fallback_ui.py --chat-name "Example Chat" --dry-run
-```
+- `--output <dir>`
+  Output folder for `manifest.json`, `summary.txt`, `unresolved.json`, and state files.
 
-This script only provides a thin AppleScript-driven starting point for UI search automation and should be treated as experimental.
+- `--types video,pdf`
+  Target attachment categories once enumeration/export is implemented.
+
+- `--resume`
+  Reserved for the later resumable export phase.
+
+- `--verbose`
+  Print the structured investigation payload.
+
+- `--password-prompt`
+  Prompt securely for the encrypted backup password.
+
+## Important Notes
+
+- The source backup is never modified.
+- Decrypted working files are written outside the source backup.
+- If the password is not supplied, the tool will stop honestly at the encrypted-manifest boundary.
+- If decryption fails, the exact error is surfaced in the artifacts.
+- Attachment export is intentionally not claimed yet until WhatsApp schemas and file presence are proven from the decrypted manifest path.
