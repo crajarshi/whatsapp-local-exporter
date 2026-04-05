@@ -87,121 +87,37 @@ Why there is a dependency now:
 - encrypted Finder backups do not expose a plaintext `Manifest.db`
 - this project uses `iphone_backup_decrypt` to create a decrypted working copy of `Manifest.db` outside the source backup
 
-## Optional Checks
+## Troubleshooting
 
-### 1. Make sure macOS privacy is not blocking the backup
-
-If the backup lives under `~/Library/Application Support/MobileSync/Backup/`, give Full Disk Access to:
-
-- Codex
-- Terminal or iTerm, if that is what launches the CLI
-
-### 2. List available backups
+- If the backup lives under `~/Library/Application Support/MobileSync/Backup/`, give Full Disk Access to Codex and to Terminal or iTerm if that is what launches the CLI.
+- If you are not sure which backup folder to use, run:
 
 ```bash
 python cli.py --list-backups
 ```
 
-### 3. Run a dry-run without a password first
-
-This confirms discovery, backup metadata, encryption state, and whether WhatsApp is visible in `Manifest.plist`.
+- If you want to inspect first without exporting, run:
 
 ```bash
 python cli.py \
   --backup-path "/Users/<you>/Library/Application Support/MobileSync/Backup/<backup-id>" \
   --dry-run \
-  --output ./output \
-  --verbose
+  --output ~/Downloads/whatsapp-export
 ```
 
-Expected result for an encrypted backup:
-
-- backup path is readable
-- backup encrypted = yes
-- WhatsApp data located = yes if WhatsApp app/app-group identifiers are present
-- `Manifest.db` reported as encrypted or opaque on disk until a password is supplied
-
-### 4. Run a dry-run with `--password-prompt`
-
-This is the next real step for encrypted backups. The CLI will securely prompt for the Finder backup password without echoing it.
+- If you want the CLI to decrypt and inspect the manifest before exporting, use:
 
 ```bash
 python cli.py \
   --backup-path "/Users/<you>/Library/Application Support/MobileSync/Backup/<backup-id>" \
   --dry-run \
-  --password-prompt \
-  --output ./output \
-  --verbose
-```
-
-If you are using Codex Desktop and the embedded terminal does not accept hidden password input cleanly, run the same command in your normal macOS Terminal or iTerm window instead.
-
-If the password is correct, the tool will:
-
-- decrypt a working copy of `Manifest.db`
-- store that working copy under `output/.state/<backup-id>/`
-- keep the original backup untouched
-- continue investigation from the decrypted manifest copy
-
-There is intentionally no `--password <value>` flag, because that would leak into shell history and process lists.
-
-Optional secondary mode:
-
-- if you really need non-interactive execution, set `FINDER_BACKUP_PASSWORD` in the environment
-- the CLI never writes the password value to stdout, stderr, manifests, or summary files
-
-### 5. Review the generated artifacts
-
-After a run, inspect:
-
-- `output/manifest.json`
-- `output/summary.txt`
-- `output/unresolved.json`
-
-These files tell you:
-
-- which backup was selected
-- whether it is encrypted
-- whether decryption succeeded
-- whether WhatsApp presence was proven
-- whether `Manifest.db` was directly readable or required decryption
-- what is still unresolved
-
-### 6. Run the actual export
-
-The CLI now prints a pre-export report first, including:
-
-- total WhatsApp file bytes
-- total WhatsApp media file bytes
-- target export bytes
-- target video count and bytes
-- target image count and bytes when selected
-- target audio count and bytes when selected
-- target document count and bytes
-- target raw chat/database count and bytes when selected
-- manifest-level target chat count
-
-Then it decrypts and exports the selected file types.
-
-```bash
-python cli.py \
-  --backup-path "/Users/<you>/Library/Application Support/MobileSync/Backup/<backup-id>" \
-  --export \
   --password-prompt \
   --output ~/Downloads/whatsapp-export \
-  --types all \
-  --resume
+  --verbose
 ```
 
-Export output locations:
-
-- `output/videos/`
-- `output/images/`
-- `output/audio/`
-- `output/pdfs/`
-- `output/chats/`
-- `output/databases/`
-- `output/other/`
+- The password prompt is hidden and never uses `--password <value>`. If Codex Desktop’s embedded terminal does not accept hidden input cleanly, run the command in normal Terminal or iTerm instead.
+- After any run, inspect `manifest.json`, `summary.txt`, and `unresolved.json` inside the output folder.
 
 ## CLI Flags
 
